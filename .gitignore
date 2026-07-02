@@ -1,0 +1,7 @@
+node_modules/
+.next/
+.env
+data/leads.local.json
+output/jobs/*
+!output/jobs/.gitkeep
+*.tsbuildinfo

@@ -1,0 +1,13 @@
+{
+  "_comment": "Vehicle 3D model library. `file` is a public URL path (put .glb files in public/models/). `file: null` means no model yet — the viewer automatically falls back to a class-appropriate primitive proxy so it never hard-fails. See HOW_TO_ADD_A_MODEL.md.",
+  "models": [
+    { "class": "sedan",         "file": null, "wrapMeshes": ["body", "Body"], "scale": 1 },
+    { "class": "small-suv",     "file": null, "wrapMeshes": ["body", "Body"], "scale": 1 },
+    { "class": "full-suv",      "file": null, "wrapMeshes": ["body", "Body"], "scale": 1 },
+    { "class": "cargo-van",     "file": null, "wrapMeshes": ["body", "Body"], "scale": 1 },
+    { "class": "high-roof-van", "file": null, "wrapMeshes": ["body", "Body"], "scale": 1 },
+    { "class": "pickup",        "file": null, "wrapMeshes": ["body", "Body"], "scale": 1 },
+    { "class": "box-truck-16",  "file": null, "wrapMeshes": ["box", "body"],  "scale": 1 },
+    { "class": "box-truck-24",  "file": null, "wrapMeshes": ["box", "body"],  "scale": 1 }
+  ]
+}

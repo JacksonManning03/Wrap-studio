@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+
+body {
+  @apply bg-paper text-ink font-body antialiased;
+}
+
+h1,h2,h3 { @apply font-display; }
+
+/* Visible keyboard focus everywhere */
+:focus-visible { outline: 2px solid #0E8F86; outline-offset: 2px; border-radius: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+.field { @apply w-full rounded-lg border border-line bg-white px-3 py-2.5 text-[15px] placeholder:text-muted/60 focus:border-teal; }
+.label { @apply block text-[13px] font-semibold tracking-wide text-ink mb-1.5; }
+.hint  { @apply text-[12px] text-muted mt-1; }
+.btn   { @apply inline-flex items-center justify-center gap-2 rounded-lg px-5 py-3 font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed; }
+.btn-primary { @apply btn bg-ink text-white hover:bg-black; }
+.btn-accent  { @apply btn bg-teal text-white hover:bg-teal-deep; }
+.btn-ghost   { @apply btn border border-line bg-white hover:border-ink; }
+.chip { @apply rounded-full border border-line bg-white px-3.5 py-1.5 text-[13px] font-medium cursor-pointer transition-colors; }
+.chip-on { @apply border-ink bg-ink text-white; }
+.card { @apply rounded-2xl bg-panel shadow-card border border-line/60; }
+
+/* Vinyl slider — the signature element */
+input[type="range"].vinyl {
+  -webkit-appearance: none; appearance: none;
+  height: 14px; border-radius: 999px; width: 100%;
+  background: linear-gradient(90deg, #FF5A1F var(--fill, 50%), #E9EBE7 var(--fill, 50%));
+  cursor: pointer;
+}
+input[type="range"].vinyl::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 30px; height: 30px; border-radius: 8px;
+  background: #171B21 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30'><path d='M11 8v14M15 8v14M19 8v14' stroke='%23ffffff' stroke-width='2'/></svg>") center/contain no-repeat;
+  border: 2px solid white; box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+input[type="range"].vinyl::-moz-range-thumb {
+  width: 30px; height: 30px; border-radius: 8px; background: #171B21;
+  border: 2px solid white; box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+
+@keyframes shimmer { 0% {background-position: -400px 0} 100% {background-position: 400px 0} }
+.skeleton {
+  background: linear-gradient(90deg,#eceee9 25%,#f6f7f5 37%,#eceee9 63%);
+  background-size: 800px 100%; animation: shimmer 1.4s infinite linear;
+}
