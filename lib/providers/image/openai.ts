@@ -10,10 +10,22 @@ function dataUrlToBlob(dataUrl: string): Blob | null {
   return new Blob([bin], { type: m[1] });
 }
 
+// Abort a few seconds before Vercel's 60s function limit so a slow generation
+// degrades to the placeholder instead of a hard 504 timeout.
+async function fetchWithTimeout(url: string, init: RequestInit, ms = 55000): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
- * OpenAI Images (gpt-image-1).
- * - If the user uploaded a real vehicle photo: image edit (keeps their exact
- *   vehicle, angle and lighting) with the flat design described in the prompt.
+ * OpenAI Images (gpt-image-1). Sized and quality-tuned (1024x1024, medium) to
+ * finish within the Vercel Hobby 60s function limit.
+ * - Photo uploaded: image edit (keeps the exact vehicle, angle and lighting).
  * - Otherwise: text-to-image on a class-appropriate stock vehicle.
  * Any failure falls back to the placeholder provider — the flow never dies.
  */
@@ -32,8 +44,9 @@ export const openaiProvider: ImageProvider = {
           form.append("model", "gpt-image-1");
           form.append("prompt", `Apply this wrap design to the vehicle in the photo, preserving the exact vehicle, angle and lighting. ${prompt}`);
           form.append("image", blob, "vehicle.png");
-          form.append("size", "1536x1024");
-          res = await fetch("https://api.openai.com/v1/images/edits", {
+          form.append("size", "1024x1024");
+          form.append("quality", "medium");
+          res = await fetchWithTimeout("https://api.openai.com/v1/images/edits", {
             method: "POST",
             headers: { Authorization: `Bearer ${config.openaiKey}` },
             body: form,
@@ -58,13 +71,13 @@ export const openaiProvider: ImageProvider = {
     }
   },
   async textToImage(prompt: string): Promise<Response> {
-    return fetch("https://api.openai.com/v1/images/generations", {
+    return fetchWithTimeout("https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.openaiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ model: "gpt-image-1", prompt, size: "1536x1024", n: 1 }),
+      body: JSON.stringify({ model: "gpt-image-1", prompt, size: "1024x1024", quality: "medium", n: 1 }),
     });
   },
 } as ImageProvider & { textToImage(p: string): Promise<Response> };

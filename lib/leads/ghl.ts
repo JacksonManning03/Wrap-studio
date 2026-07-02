@@ -1,6 +1,7 @@
 import { config } from "@/lib/config";
 import { promises as fs } from "fs";
 import path from "path";
+import os from "os";
 
 export interface LeadPayload {
   name: string;
@@ -9,19 +10,24 @@ export interface LeadPayload {
   jobSummary: Record<string, unknown>;
 }
 
-const LOCAL_LEADS = path.join(process.cwd(), "data", "leads.local.json");
+// Vercel's function filesystem is read-only except for the temp dir, so the
+// local fallback writes there. This is ephemeral — the real destination is GHL.
+const LOCAL_LEADS = path.join(os.tmpdir(), "leads.local.json");
 
 async function appendLocal(lead: LeadPayload) {
-  let arr: unknown[] = [];
-  try { arr = JSON.parse(await fs.readFile(LOCAL_LEADS, "utf8")); } catch {}
-  arr.push({ ...lead, capturedAt: new Date().toISOString() });
-  await fs.mkdir(path.dirname(LOCAL_LEADS), { recursive: true });
-  await fs.writeFile(LOCAL_LEADS, JSON.stringify(arr, null, 2));
+  try {
+    let arr: unknown[] = [];
+    try { arr = JSON.parse(await fs.readFile(LOCAL_LEADS, "utf8")); } catch {}
+    arr.push({ ...lead, capturedAt: new Date().toISOString() });
+    await fs.writeFile(LOCAL_LEADS, JSON.stringify(arr, null, 2));
+  } catch (e) {
+    console.warn("[leads] local append skipped:", e);
+  }
 }
 
 /**
  * Create a GHL lead. Primary: inbound webhook. Secondary: API v2 create-contact.
- * Fallback: data/leads.local.json. NEVER throws to the user flow.
+ * Fallback: temp-dir JSON file. NEVER throws to the user flow.
  */
 export async function captureLead(lead: LeadPayload): Promise<{ channel: string }> {
   const [first, ...rest] = lead.name.trim().split(/\s+/);
@@ -69,7 +75,7 @@ export async function captureLead(lead: LeadPayload): Promise<{ channel: string 
     } catch (e) { console.warn("[leads] GHL API failed:", e); }
   }
 
-  console.warn("[leads] No GHL config — appending to data/leads.local.json");
+  console.warn("[leads] No GHL delivery — appending to temp leads file");
   await appendLocal(lead);
   return { channel: "local-file" };
 }
