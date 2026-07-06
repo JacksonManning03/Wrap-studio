@@ -3,11 +3,15 @@ import { buildPrompt } from "./prompt";
 import { placeholderProvider } from "./placeholder";
 import { config } from "@/lib/config";
 
-function dataUrlToBlob(dataUrl: string): Blob | null {
+// Parse a data URL into a Blob plus its real file extension. Using the correct
+// extension matters: OpenAI's edit endpoint rejects a JPEG sent as ".png".
+function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string } | null {
   const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
   if (!m) return null;
+  const mime = m[1];
   const bin = Buffer.from(m[2], "base64");
-  return new Blob([bin], { type: m[1] });
+  const ext = (mime.split("/")[1] || "png").replace("jpeg", "jpg");
+  return { blob: new Blob([bin], { type: mime }), ext };
 }
 
 // Abort a few seconds before Vercel's 60s function limit so a slow generation
@@ -23,10 +27,10 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms = 55000): Pro
 }
 
 /**
- * OpenAI Images (gpt-image-1). Sized and quality-tuned (1024x1024, medium) to
- * finish within the Vercel Hobby 60s function limit.
- * - Photo uploaded: image edit (keeps the exact vehicle, angle and lighting).
- * - Otherwise: text-to-image on a class-appropriate stock vehicle.
+ * OpenAI Images (gpt-image-1), 1024x1024 / medium to fit Vercel Hobby's 60s.
+ * - Photo uploaded: try an image edit (keeps the exact vehicle). If OpenAI
+ *   rejects the file, fall through to text-to-image rather than failing.
+ * - No photo: text-to-image on a class-appropriate stock vehicle.
  * Any failure falls back to the placeholder provider — the flow never dies.
  */
 export const openaiProvider: ImageProvider = {
@@ -35,28 +39,31 @@ export const openaiProvider: ImageProvider = {
     if (!config.openaiKey) return placeholderProvider.generate(req);
     const prompt = buildPrompt(req);
     try {
+      let res: Response | null = null;
+
       const photo = req.vehicle.photos[0];
-      let res: Response;
       if (photo) {
-        const blob = dataUrlToBlob(photo);
-        if (blob) {
+        const parsed = dataUrlToBlob(photo);
+        if (parsed) {
           const form = new FormData();
           form.append("model", "gpt-image-1");
           form.append("prompt", `Apply this wrap design to the vehicle in the photo, preserving the exact vehicle, angle and lighting. ${prompt}`);
-          form.append("image", blob, "vehicle.png");
+          form.append("image", parsed.blob, `vehicle.${parsed.ext}`);
           form.append("size", "1024x1024");
           form.append("quality", "medium");
-          res = await fetchWithTimeout("https://api.openai.com/v1/images/edits", {
+          const editRes = await fetchWithTimeout("https://api.openai.com/v1/images/edits", {
             method: "POST",
             headers: { Authorization: `Bearer ${config.openaiKey}` },
             body: form,
           });
-        } else {
-          res = await this.textToImage(prompt);
+          if (editRes.ok) res = editRes;
+          else console.warn("[image] edit rejected, using text-to-image:", editRes.status, await editRes.text());
         }
-      } else {
-        res = await this.textToImage(prompt);
       }
+
+      // No photo, or the edit was rejected: generate on a stock vehicle.
+      if (!res) res = await this.textToImage(prompt);
+
       if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
       const json = await res.json();
       const b64 = json?.data?.[0]?.b64_json;
