@@ -69,7 +69,7 @@ export default function Studio() {
       setActiveVehicleId(p.vehicles[0].id);
       // Start rendering NOW — the contact gate lives inside this wait.
       void generate(design, p.vehicles[0]);
-      setStep(gateDone.current ? "results" : "gate");
+      setStep("results"); // contact gate disabled for personal use — no lead capture
     },
     [generate],
   );
