@@ -46,10 +46,16 @@ export const openaiProvider: ImageProvider = {
       if (baseImage) {
         const parsed = dataUrlToBlob(baseImage);
         if (parsed) {
+          // Attach the real logo as a second reference image so it's copied,
+          // not invented. OpenAI edits reject SVG, so only raster formats go.
+          const logoRaw = req.design.branding.logoDataUrl;
+          const logoParsed = logoRaw ? dataUrlToBlob(logoRaw) : null;
+          const logoOk = logoParsed && logoParsed.ext !== "svg+xml" && !logoParsed.blob.type.includes("svg");
           const form = new FormData();
           form.append("model", "gpt-image-1");
-          form.append("prompt", `Paint this vinyl wrap design onto the vehicle in the image, preserving the exact vehicle, camera angle, white background and lighting. ${prompt}`);
-          form.append("image", parsed.blob, `vehicle.${parsed.ext}`);
+          form.append("prompt", `The first image is the vehicle to wrap${logoOk ? "; the second image is the company's exact logo — copy it onto the design faithfully" : ""}. Paint the vinyl wrap design onto the vehicle, preserving the exact vehicle, camera angle, white background and lighting. ${prompt}`);
+          form.append("image[]", parsed.blob, `vehicle.${parsed.ext}`);
+          if (logoOk) form.append("image[]", logoParsed.blob, `logo.${logoParsed.ext}`);
           form.append("size", "1536x1024");
           form.append("quality", "medium");
           const editRes = await fetchWithTimeout("https://api.openai.com/v1/images/edits", {

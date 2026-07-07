@@ -11,6 +11,15 @@ import { nearestTier, priceFor } from "@/lib/pricing/pricing";
 export interface Render { url: string; provider: string; note?: string; loading?: boolean; }
 export type RenderMap = Record<string, Render>; // key: designId:vehicleId:scene
 
+/** Five deliberately different first-pass concepts, refined from there. */
+const STYLE_DIRECTIONS = [
+  "Clean & corporate — body stays mostly the base color or white, huge clean logo and lettering, generous negative space, one thin accent stripe",
+  "Bold color-block — large angled panels of the brand colors sweeping front to rear, business name knocked out big and white on the doors",
+  "Premium dark — deep black or charcoal base, brand colors as sharp accent lines, understated and high-end",
+  "Dynamic flow — sweeping curved brand-color graphics that follow the body lines from fender to rear, energetic but clean",
+  "Full themed graphic — edge-to-edge artwork themed to the company's trade, with the text zones kept clean and readable on solid areas",
+];
+
 export default function Studio() {
   const [step, setStep] = useState<"intake" | "gate" | "results">("intake");
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -73,7 +82,7 @@ export default function Studio() {
 
   const handleIntake = useCallback(
     (p: IntakePayload) => {
-      const design: FlatDesign = {
+      const newDesigns: FlatDesign[] = STYLE_DIRECTIONS.map((styleHint, i) => ({
         id: uid("dsn"),
         jobType: "printed",
         material: MATERIALS.printed[0],
@@ -82,20 +91,44 @@ export default function Studio() {
         branding: p.branding,
         legal: { enabled: false },
         customText: p.customText,
+        styleHint,
         direction: p.direction,
         inspiration: p.inspiration,
         seed: Math.floor(Math.random() * 1e9),
-        variant: 0,
-      };
+        variant: i,
+      }));
       setVehicles(p.vehicles);
-      setDesigns([design]);
-      setActiveDesignId(design.id);
+      setDesigns(newDesigns);
+      setActiveDesignId(newDesigns[0].id);
       setActiveVehicleId(p.vehicles[0].id);
-      // Start rendering NOW — the contact gate lives inside this wait.
-      void generate(design, p.vehicles[0]);
+      // Build the template ONCE, then fan out all five concepts against it.
+      void (async () => {
+        const veh = await ensureTemplate(p.vehicles[0]);
+        newDesigns.forEach((d) => void generate(d, veh));
+      })();
       setStep("results"); // contact gate disabled for personal use — no lead capture
     },
-    [generate],
+    [generate, ensureTemplate],
+  );
+
+  /** Feedback loop: take the active concept, apply the client's note, re-render. */
+  const refine = useCallback(
+    (note: string) => {
+      const base = designs.find((d) => d.id === activeDesignId);
+      const vehicle = vehicles.find((v) => v.id === activeVehicleId);
+      if (!base || !vehicle) return;
+      const next: FlatDesign = {
+        ...base,
+        id: uid("dsn"),
+        variant: designs.length,
+        direction: [base.direction, `Revision request — apply this change while keeping everything else: ${note}`]
+          .filter(Boolean).join(". "),
+      };
+      setDesigns((d) => [...d, next]);
+      setActiveDesignId(next.id);
+      void generate(next, vehicle);
+    },
+    [designs, vehicles, activeDesignId, activeVehicleId, generate],
   );
 
   const handleLead = useCallback(
@@ -182,6 +215,7 @@ export default function Studio() {
           }}
           onAddVehicle={(v) => setVehicles((vs) => [...vs, v])}
           onRegenerate={regenerate}
+          onRefine={refine}
           onRerender={(scene) => {
             const d = designs.find((x) => x.id === activeDesignId);
             const v = vehicles.find((x) => x.id === activeVehicleId);

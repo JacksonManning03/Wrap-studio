@@ -52,6 +52,8 @@ export interface FlatDesign {
   legal: LegalText;
   /** Any specific text the client wants on the vehicle (replaces the DOT/USDOT fields). */
   customText?: string;
+  /** One of the distinct design directions used for the 5-variant first pass. */
+  styleHint?: string;
   /** Free-text style/vibe from the user. */
   direction?: string;
   /** Inspiration images (data URLs) — hook for the generator. */

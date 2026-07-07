@@ -28,6 +28,31 @@ function fileToDataUrl(f: File): Promise<string> {
   });
 }
 
+/**
+ * Normalize any logo (including SVG) to a PNG data URL. The image API only
+ * accepts raster reference images, and an un-rasterized logo is why renders
+ * used to invent/distort logos.
+ */
+function rasterizeLogoToPng(dataUrl: string, max = 1024): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth || max;
+      const h = img.naturalHeight || max;
+      const scale = Math.min(1, max / Math.max(w, h));
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(w * scale));
+      c.height = Math.max(1, Math.round(h * scale));
+      const ctx = c.getContext("2d");
+      if (!ctx) return resolve(dataUrl);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      try { resolve(c.toDataURL("image/png")); } catch { resolve(dataUrl); }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 interface DraftVehicle {
   id: string; vehicleClass: VehicleClass; photos: string[];
 }
@@ -105,7 +130,7 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
       if (json.businessName && !businessName) setBusinessName(json.businessName);
       if (json.phone && !phone) setPhone(json.phone);
       if (json.colors.length && colors.length === 0) setColors(json.colors);
-      if (json.logoDataUrl && !logo) setLogo({ dataUrl: json.logoDataUrl, name: "From your website" });
+      if (json.logoDataUrl && !logo) setLogo({ dataUrl: await rasterizeLogoToPng(json.logoDataUrl), name: "From your website" });
     } catch {
       setScrape(null);
     } finally {
@@ -113,12 +138,12 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
     }
   };
 
-  const useScraped = () => {
+  const useScraped = async () => {
     if (!scrape) return;
     if (scrape.businessName) setBusinessName(scrape.businessName);
     if (scrape.phone) setPhone(scrape.phone);
     if (scrape.colors.length) setColors(scrape.colors);
-    if (scrape.logoDataUrl) setLogo({ dataUrl: scrape.logoDataUrl, name: "From your website" });
+    if (scrape.logoDataUrl) setLogo({ dataUrl: await rasterizeLogoToPng(scrape.logoDataUrl), name: "From your website" });
     setScrapeResolved(true);
   };
 
@@ -266,7 +291,7 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
               <input id="logo" type="file" accept=".svg,.png,.jpg,.jpeg,image/*" className="field py-2"
                 onChange={async (e) => {
                   const f = e.target.files?.[0];
-                  if (f) setLogo({ dataUrl: await fileToDataUrl(f), name: f.name });
+                  if (f) setLogo({ dataUrl: await rasterizeLogoToPng(await fileToDataUrl(f)), name: f.name });
                 }} />
               {logo && (
                 <div className="mt-2 flex items-center gap-2">

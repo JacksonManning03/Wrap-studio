@@ -27,6 +27,7 @@ interface Props {
   onSelectVehicle: (id: string) => void;
   onAddVehicle: (v: Vehicle) => void;
   onRegenerate: () => void;
+  onRefine: (note: string) => void;
   onRerender: (scene?: string) => void;
   onUpdateDesign: (id: string, patch: Partial<FlatDesign>) => void;
 }
@@ -38,6 +39,7 @@ export default function ResultsView(p: Props) {
   const [done, setDone] = useState<null | { location: string; path: string; vectorDataUrl: string; jobId: string }>(null);
   const [proceedErr, setProceedErr] = useState("");
   const [addingClass, setAddingClass] = useState<VehicleClass>("cargo-van");
+  const [refineText, setRefineText] = useState("");
 
   const design = p.designs.find((d) => d.id === p.activeDesignId) || p.designs[0];
   const vehicle = p.vehicles.find((v) => v.id === p.activeVehicleId) || p.vehicles[0];
@@ -128,6 +130,24 @@ export default function ResultsView(p: Props) {
           <WrapViewer design={design} vehicleClass={vehicle.vehicleClass} />
         )}
 
+        {/* Refine loop — approve or ask for changes */}
+        <div className="card p-4">
+          <label className="label" htmlFor="refine">Want changes? Tell us what to adjust</label>
+          <div className="flex gap-2">
+            <input id="refine" className="field"
+              placeholder="e.g. Make the logo bigger, calm the graphics down, move the phone number to the bed"
+              value={refineText} onChange={(e) => setRefineText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && refineText.trim()) { p.onRefine(refineText.trim()); setRefineText(""); }
+              }} />
+            <button className="btn-primary whitespace-nowrap" disabled={!refineText.trim() || !!render?.loading}
+              onClick={() => { p.onRefine(refineText.trim()); setRefineText(""); }}>
+              Refine this design
+            </button>
+          </div>
+          <p className="hint mt-1">We re-render this concept with your change applied — the original stays in the strip below.</p>
+        </div>
+
         {/* Coverage preview strip — the flat design, live */}
         <div className="card flex items-center gap-4 p-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -141,7 +161,7 @@ export default function ResultsView(p: Props) {
         {/* Session gallery */}
         {p.designs.length > 1 && (
           <div>
-            <p className="label">This session&apos;s variations</p>
+            <p className="label">Your design concepts — pick one to view or refine</p>
             <div className="flex gap-3 overflow-x-auto pb-1">
               {p.designs.map((d) => {
                 const r = p.renders[`${d.id}:${vehicle.id}:default`];
