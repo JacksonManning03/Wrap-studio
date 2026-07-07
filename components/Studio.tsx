@@ -5,6 +5,7 @@ import IntakeForm, { type IntakePayload } from "@/components/intake/IntakeForm";
 import ContactGate from "@/components/results/ContactGate";
 import ResultsView from "@/components/results/ResultsView";
 import { uid, type FlatDesign, type Vehicle } from "@/lib/design/model";
+import { MATERIALS } from "@/lib/pricing/constants";
 import { nearestTier, priceFor } from "@/lib/pricing/pricing";
 
 export interface Render { url: string; provider: string; note?: string; loading?: boolean; }
@@ -22,15 +23,37 @@ export default function Studio() {
 
   const renderKey = (d: string, v: string, scene = "default") => `${d}:${v}:${scene}`;
 
+  // Step 1: build a clean side-profile template from the client's photo.
+  // Cached per vehicle; failures fall back to rendering on the raw photo.
+  const ensureTemplate = useCallback(async (vehicle: Vehicle): Promise<Vehicle> => {
+    if (vehicle.templateUrl || !vehicle.photos[0]) return vehicle;
+    try {
+      const res = await fetch("/api/template", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photo: vehicle.photos[0] }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.url) return vehicle;
+      const withTemplate = { ...vehicle, templateUrl: json.url as string };
+      setVehicles((vs) => vs.map((v) => (v.id === vehicle.id ? withTemplate : v)));
+      return withTemplate;
+    } catch {
+      return vehicle;
+    }
+  }, []);
+
+  // Step 2: paint the wrap design onto the template.
   const generate = useCallback(
     async (design: FlatDesign, vehicle: Vehicle, scene?: string) => {
       const key = renderKey(design.id, vehicle.id, scene || "default");
       setRenders((r) => ({ ...r, [key]: { url: "", provider: "", loading: true } }));
       try {
+        const veh = await ensureTemplate(vehicle);
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ design, vehicle, scene }),
+          body: JSON.stringify({ design, vehicle: veh, scene }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || "generate failed");
@@ -45,19 +68,20 @@ export default function Studio() {
         }));
       }
     },
-    [],
+    [ensureTemplate],
   );
 
   const handleIntake = useCallback(
     (p: IntakePayload) => {
       const design: FlatDesign = {
         id: uid("dsn"),
-        jobType: p.jobType,
-        material: p.material,
+        jobType: "printed",
+        material: MATERIALS.printed[0],
         finish: p.finish,
         coverage: p.coverage,
         branding: p.branding,
-        legal: p.legal,
+        legal: { enabled: false },
+        customText: p.customText,
         direction: p.direction,
         inspiration: p.inspiration,
         seed: Math.floor(Math.random() * 1e9),

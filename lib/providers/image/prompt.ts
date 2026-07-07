@@ -30,9 +30,11 @@ export function buildPrompt(req: GenerateRequest): string {
       ? "The company logo (supplied as reference) is reproduced EXACTLY as provided — do not redraw, restyle, distort or recolor it."
       : "",
     d.direction ? `Design direction from the client: ${d.direction}.` : "",
-    d.legal.enabled
-      ? `Include small legal lettering: ${[d.legal.usdot && `USDOT ${d.legal.usdot}`, d.legal.mc && `MC ${d.legal.mc}`, d.legal.license && `LIC ${d.legal.license}`].filter(Boolean).join(", ")}.`
-      : "Do NOT add any DOT/USDOT/MC or licensing text.",
+    d.customText
+      ? `Also include this exact text on the vehicle, small and clean: "${d.customText}".`
+      : d.legal?.enabled
+        ? `Include small legal lettering: ${[d.legal.usdot && `USDOT ${d.legal.usdot}`, d.legal.mc && `MC ${d.legal.mc}`, d.legal.license && `LIC ${d.legal.license}`].filter(Boolean).join(", ")}.`
+        : "Do NOT add any DOT/USDOT/MC or licensing text.",
     `Coverage: roughly ${(d.coverage * 100).toFixed(0)}% of the body wrapped; the remainder shows the vehicle's own paint.`,
     scene ? `Setting: ${scene}.` : "Setting: isolated on a clean white studio background with a soft contact shadow, professional product-shot lighting.",
     "No text other than what is specified. No watermarks.",

@@ -34,8 +34,10 @@ export interface Vehicle {
   make?: string;
   model?: string;
   trim?: string;
-  /** Real photo(s) of the user's vehicle, data URLs. Improves render fidelity. */
+  /** Real photo(s) of the user's vehicle, data URLs. Required — drives the template. */
   photos: string[];
+  /** AI-generated clean side-profile template of this vehicle (data URL). */
+  templateUrl?: string;
   label: string;
 }
 
@@ -48,6 +50,8 @@ export interface FlatDesign {
   coverage: number;
   branding: Branding;
   legal: LegalText;
+  /** Any specific text the client wants on the vehicle (replaces the DOT/USDOT fields). */
+  customText?: string;
   /** Free-text style/vibe from the user. */
   direction?: string;
   /** Inspiration images (data URLs) — hook for the generator. */

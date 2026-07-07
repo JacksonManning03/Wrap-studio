@@ -2,21 +2,19 @@
 
 import { useMemo, useState } from "react";
 import {
-  COVERAGE_TIERS, FINISHES, MATERIALS, VEHICLE_CLASSES, VEHICLE_CLASS_LABELS,
-  type Finish, type JobType, type VehicleClass,
+  COVERAGE_TIERS, FINISHES, VEHICLE_CLASSES, VEHICLE_CLASS_LABELS,
+  type Finish, type VehicleClass,
 } from "@/lib/pricing/constants";
 import { coverageForBudget, fmtUSD, priceFor } from "@/lib/pricing/pricing";
-import { uid, type Branding, type LegalText, type Vehicle } from "@/lib/design/model";
+import { uid, type Branding, type Vehicle } from "@/lib/design/model";
 
 export interface IntakePayload {
   vehicles: Vehicle[];
-  jobType: JobType;
-  material: string;
   finish: Finish;
   coverage: number;
   budget?: number;
   branding: Branding;
-  legal: LegalText;
+  customText?: string;
   direction?: string;
   inspiration: string[];
 }
@@ -31,17 +29,19 @@ function fileToDataUrl(f: File): Promise<string> {
 }
 
 interface DraftVehicle {
-  id: string; vehicleClass: VehicleClass;
-  year: string; make: string; model: string; trim: string; photos: string[];
+  id: string; vehicleClass: VehicleClass; photos: string[];
 }
-const newDraft = (): DraftVehicle => ({
-  id: uid("veh"), vehicleClass: "sedan", year: "", make: "", model: "", trim: "", photos: [],
-});
+const newDraft = (): DraftVehicle => ({ id: uid("veh"), vehicleClass: "sedan", photos: [] });
+
+interface ScrapeResult {
+  businessName: string | null;
+  phone: string | null;
+  colors: string[];
+  logoDataUrl: string | null;
+}
 
 export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) => void }) {
   const [vehicles, setVehicles] = useState<DraftVehicle[]>([newDraft()]);
-  const [jobType, setJobType] = useState<JobType>("printed");
-  const [material, setMaterial] = useState<string>(MATERIALS.printed[0]);
   const [finish, setFinish] = useState<Finish>("Gloss");
   const [tierId, setTierId] = useState<string>("full");
   const [budget, setBudget] = useState<string>("");
@@ -54,34 +54,82 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
   const [website, setWebsite] = useState("");
   const [direction, setDirection] = useState("");
   const [inspiration, setInspiration] = useState<string[]>([]);
-  const [legalOn, setLegalOn] = useState(false);
-  const [usdot, setUsdot] = useState(""); const [mc, setMc] = useState(""); const [license, setLicense] = useState("");
+  const [customText, setCustomText] = useState("");
+
+  // Website branding scrape
+  const [scraping, setScraping] = useState(false);
+  const [scrape, setScrape] = useState<ScrapeResult | null>(null);
+  const [scrapeResolved, setScrapeResolved] = useState(false);
 
   const tier = COVERAGE_TIERS.find((t) => t.id === tierId) || COVERAGE_TIERS[4];
   const vc = vehicles[0].vehicleClass;
   const budgetNum = parseFloat(budget);
   const coverage = useMemo(
     () => (budget && !isNaN(budgetNum) && budgetNum > 0
-      ? coverageForBudget(budgetNum, vc, jobType)
+      ? coverageForBudget(budgetNum, vc, "printed")
       : tier.fraction),
-    [budget, budgetNum, vc, jobType, tier],
+    [budget, budgetNum, vc, tier],
   );
-  const estimate = priceFor(vc, coverage, jobType);
+  const estimate = priceFor(vc, coverage, "printed");
+
+  const photosMissing = vehicles.some((v) => v.photos.length === 0);
 
   const setVeh = (id: string, patch: Partial<DraftVehicle>) =>
     setVehicles((vs) => vs.map((v) => (v.id === id ? { ...v, ...patch } : v)));
 
+  const normPhone = (s: string) => s.replace(/\D/g, "").replace(/^1/, "");
+  const scrapeConflicts = useMemo(() => {
+    if (!scrape || scrapeResolved) return [];
+    const out: { field: string; typed: string; found: string }[] = [];
+    if (scrape.businessName && businessName && scrape.businessName.toLowerCase() !== businessName.toLowerCase())
+      out.push({ field: "Business name", typed: businessName, found: scrape.businessName });
+    if (scrape.phone && phone && normPhone(scrape.phone) !== normPhone(phone))
+      out.push({ field: "Phone", typed: phone, found: scrape.phone });
+    return out;
+  }, [scrape, scrapeResolved, businessName, phone]);
+
+  const runScrape = async () => {
+    if (!website.trim() || scraping) return;
+    setScraping(true);
+    setScrapeResolved(false);
+    try {
+      const res = await fetch("/api/brand-scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: website.trim() }),
+      });
+      const json = (await res.json()) as ScrapeResult & { ok?: boolean };
+      if (!res.ok || json.ok === false) { setScrape(null); return; }
+      setScrape(json);
+      // Quietly fill anything the user left blank.
+      if (json.businessName && !businessName) setBusinessName(json.businessName);
+      if (json.phone && !phone) setPhone(json.phone);
+      if (json.colors.length && colors.length === 0) setColors(json.colors);
+      if (json.logoDataUrl && !logo) setLogo({ dataUrl: json.logoDataUrl, name: "From your website" });
+    } catch {
+      setScrape(null);
+    } finally {
+      setScraping(false);
+    }
+  };
+
+  const useScraped = () => {
+    if (!scrape) return;
+    if (scrape.businessName) setBusinessName(scrape.businessName);
+    if (scrape.phone) setPhone(scrape.phone);
+    if (scrape.colors.length) setColors(scrape.colors);
+    if (scrape.logoDataUrl) setLogo({ dataUrl: scrape.logoDataUrl, name: "From your website" });
+    setScrapeResolved(true);
+  };
+
   const submit = () => {
+    if (photosMissing) return;
     const finalVehicles: Vehicle[] = vehicles.map((v) => ({
-      id: v.id, vehicleClass: v.vehicleClass,
-      year: v.year || undefined, make: v.make || undefined,
-      model: v.model || undefined, trim: v.trim || undefined,
-      photos: v.photos,
-      label: [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") ||
-        VEHICLE_CLASS_LABELS[v.vehicleClass],
+      id: v.id, vehicleClass: v.vehicleClass, photos: v.photos,
+      label: VEHICLE_CLASS_LABELS[v.vehicleClass],
     }));
     onSubmit({
-      vehicles: finalVehicles, jobType, material, finish, coverage,
+      vehicles: finalVehicles, finish, coverage,
       budget: !isNaN(budgetNum) && budgetNum > 0 ? budgetNum : undefined,
       branding: {
         logoDataUrl: logo?.dataUrl, logoName: logo?.name,
@@ -90,7 +138,7 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
         businessName: businessName || undefined,
         phone: phone || undefined, website: website || undefined,
       },
-      legal: { enabled: legalOn, usdot: usdot || undefined, mc: mc || undefined, license: license || undefined },
+      customText: customText.trim() || undefined,
       direction: direction || undefined,
       inspiration,
     });
@@ -103,8 +151,8 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
         <section className="card p-5 sm:p-6">
           <h2 className="text-lg font-bold">Your vehicle</h2>
           <p className="hint mb-4">
-            The more detail you give, the better your result. A real photo of
-            your vehicle gives the most accurate mockup — but everything here is optional.
+            Upload a photo of your vehicle — we turn it into a clean side-profile
+            template, then design your wrap on it.
           </p>
           {vehicles.map((v, i) => (
             <div key={v.id} className={i > 0 ? "mt-5 border-t border-line pt-5" : ""}>
@@ -123,23 +171,19 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
                   <option key={c} value={c}>{VEHICLE_CLASS_LABELS[c]}</option>
                 ))}
               </select>
-              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {(["year", "make", "model", "trim"] as const).map((k) => (
-                  <div key={k}>
-                    <label className="label capitalize" htmlFor={`${k}-${v.id}`}>{k}</label>
-                    <input id={`${k}-${v.id}`} className="field" placeholder={k === "year" ? "2022" : ""}
-                      value={v[k]} onChange={(e) => setVeh(v.id, { [k]: e.target.value } as Partial<DraftVehicle>)} />
-                  </div>
-                ))}
-              </div>
               <div className="mt-3">
-                <label className="label" htmlFor={`photos-${v.id}`}>Photos of your vehicle</label>
+                <label className="label" htmlFor={`photos-${v.id}`}>
+                  Photos of your vehicle <span className="text-red-600">*</span>
+                </label>
                 <input id={`photos-${v.id}`} type="file" accept="image/*" multiple className="field py-2"
                   onChange={async (e) => {
                     const fs = Array.from(e.target.files || []);
                     const urls = await Promise.all(fs.map(fileToDataUrl));
                     setVeh(v.id, { photos: [...v.photos, ...urls] });
                   }} />
+                {v.photos.length === 0 && (
+                  <p className="hint text-red-600">A photo is required — it&apos;s what we build your mockup from.</p>
+                )}
                 {v.photos.length > 0 && (
                   <div className="mt-2 flex gap-2">
                     {v.photos.map((p, pi) => (
@@ -156,24 +200,10 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
           </button>
         </section>
 
-        {/* Wrap type */}
+        {/* Coverage & finish */}
         <section className="card p-5 sm:p-6">
-          <h2 className="text-lg font-bold">Wrap type</h2>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {(["printed", "color-change"] as JobType[]).map((t) => (
-              <button key={t} className={`chip ${jobType === t ? "chip-on" : ""}`}
-                onClick={() => { setJobType(t); setMaterial(MATERIALS[t][0]); }}>
-                {t === "printed" ? "Printed graphics wrap" : "Color-change wrap"}
-              </button>
-            ))}
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <div>
-              <label className="label" htmlFor="material">Material</label>
-              <select id="material" className="field" value={material} onChange={(e) => setMaterial(e.target.value)}>
-                {MATERIALS[jobType].map((m) => <option key={m}>{m}</option>)}
-              </select>
-            </div>
+          <h2 className="text-lg font-bold">Coverage & finish</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="finish">Finish</label>
               <select id="finish" className="field" value={finish} onChange={(e) => setFinish(e.target.value as Finish)}>
@@ -201,6 +231,35 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
           <p className="hint mb-4">
             Anything you add here is used exactly as supplied — your logo is never redrawn or recolored.
           </p>
+          <div className="mb-4">
+            <label className="label" htmlFor="bweb">Your website</label>
+            <div className="flex gap-2">
+              <input id="bweb" className="field" placeholder="e.g. truedetailaz.com"
+                value={website} onChange={(e) => setWebsite(e.target.value)} onBlur={runScrape} />
+              <button className="chip whitespace-nowrap" onClick={runScrape} disabled={scraping || !website.trim()}>
+                {scraping ? "Checking…" : "Pull my branding"}
+              </button>
+            </div>
+            <p className="hint">We&apos;ll pull your name, phone, colors and logo straight from your site.</p>
+          </div>
+
+          {scrapeConflicts.length > 0 && (
+            <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3">
+              <p className="text-[14px] font-semibold">Your website says something different:</p>
+              <ul className="mt-1 text-[13px]">
+                {scrapeConflicts.map((c) => (
+                  <li key={c.field}>
+                    <b>{c.field}:</b> you typed &ldquo;{c.typed}&rdquo; — your site shows &ldquo;{c.found}&rdquo;
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2 flex gap-2">
+                <button className="chip chip-on" onClick={useScraped}>Use my website&apos;s info</button>
+                <button className="chip" onClick={() => setScrapeResolved(true)}>Keep what I typed</button>
+              </div>
+            </div>
+          )}
+
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="logo">Logo (SVG or PNG preferred)</label>
@@ -240,7 +299,7 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
             </div>
             <p className="hint">Hex or Pantone — these are locked into the design exactly.</p>
           </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="bname">Business name</label>
               <input id="bname" className="field" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
@@ -248,10 +307,6 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
             <div>
               <label className="label" htmlFor="bphone">Phone (on-vehicle)</label>
               <input id="bphone" className="field" value={phone} onChange={(e) => setPhone(e.target.value)} />
-            </div>
-            <div>
-              <label className="label" htmlFor="bweb">Website (on-vehicle)</label>
-              <input id="bweb" className="field" value={website} onChange={(e) => setWebsite(e.target.value)} />
             </div>
           </div>
         </section>
@@ -272,23 +327,15 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
                 setInspiration([...inspiration, ...(await Promise.all(fs.map(fileToDataUrl)))]);
               }} />
           </div>
-          <div className="mt-4 flex items-center gap-2">
-            <input id="legal" type="checkbox" checked={legalOn} onChange={(e) => setLegalOn(e.target.checked)}
-              className="h-4 w-4 accent-teal" />
-            <label htmlFor="legal" className="text-[14px] font-medium">
-              Add DOT / USDOT / MC / licensing text
+          <div className="mt-4">
+            <label className="label" htmlFor="customText">
+              Any specific text you&apos;d like included? (optional)
             </label>
+            <textarea id="customText" className="field min-h-[60px]"
+              placeholder="e.g. USDOT 1234567 · Family owned since 2009 · Free estimates"
+              value={customText} onChange={(e) => setCustomText(e.target.value)} />
+            <p className="hint">DOT numbers, taglines, license numbers — anything you need lettered on the vehicle.</p>
           </div>
-          {legalOn && (
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <div><label className="label" htmlFor="usdot">USDOT #</label>
-                <input id="usdot" className="field" value={usdot} onChange={(e) => setUsdot(e.target.value)} /></div>
-              <div><label className="label" htmlFor="mc">MC #</label>
-                <input id="mc" className="field" value={mc} onChange={(e) => setMc(e.target.value)} /></div>
-              <div><label className="label" htmlFor="lic">License #</label>
-                <input id="lic" className="field" value={license} onChange={(e) => setLicense(e.target.value)} /></div>
-            </div>
-          )}
         </section>
       </div>
 
@@ -298,13 +345,16 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
           <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-muted">Estimate</p>
           <p className="mt-1 text-3xl font-extrabold tracking-tight">{fmtUSD(estimate)}</p>
           <p className="hint">
-            One all-in price for a {Math.round(coverage * 100)}% coverage {jobType === "printed" ? "printed" : "color-change"} wrap
+            One all-in price for a {Math.round(coverage * 100)}% coverage printed wrap
             on a {VEHICLE_CLASS_LABELS[vc].toLowerCase()} — design, material and install included.
           </p>
-          <button className="btn-accent mt-4 w-full" onClick={submit}>
-            Generate my wrap design
+          <button className="btn-accent mt-4 w-full disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={submit} disabled={photosMissing}>
+            {photosMissing ? "Add a vehicle photo to continue" : "Generate my wrap design"}
           </button>
-          <p className="hint mt-2">Takes about 20 seconds. You can generate unlimited variations.</p>
+          <p className="hint mt-2">
+            We build a clean template of your vehicle first, then design on it — about a minute total.
+          </p>
         </div>
       </aside>
     </div>

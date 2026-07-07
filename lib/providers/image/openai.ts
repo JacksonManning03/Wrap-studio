@@ -41,13 +41,14 @@ export const openaiProvider: ImageProvider = {
     try {
       let res: Response | null = null;
 
-      const photo = req.vehicle.photos[0];
-      if (photo) {
-        const parsed = dataUrlToBlob(photo);
+      // Prefer the AI-generated side-profile template; fall back to the raw photo.
+      const baseImage = req.vehicle.templateUrl || req.vehicle.photos[0];
+      if (baseImage) {
+        const parsed = dataUrlToBlob(baseImage);
         if (parsed) {
           const form = new FormData();
           form.append("model", "gpt-image-1");
-          form.append("prompt", `Apply this wrap design to the vehicle in the photo, preserving the exact vehicle, angle and lighting. ${prompt}`);
+          form.append("prompt", `Paint this vinyl wrap design onto the vehicle in the image, preserving the exact vehicle, camera angle, white background and lighting. ${prompt}`);
           form.append("image", parsed.blob, `vehicle.${parsed.ext}`);
           form.append("size", "1536x1024");
           form.append("quality", "medium");
