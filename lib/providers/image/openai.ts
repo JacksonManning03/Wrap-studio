@@ -27,7 +27,7 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms = 55000): Pro
 }
 
 /**
- * OpenAI Images (gpt-image-1), 1024x1024 / medium to fit Vercel Hobby's 60s.
+ * OpenAI Images (gpt-image-1), 1536x1024 / medium to fit Vercel Hobby's 60s.
  * - Photo uploaded: try an image edit (keeps the exact vehicle). If OpenAI
  *   rejects the file, fall through to text-to-image rather than failing.
  * - No photo: text-to-image on a class-appropriate stock vehicle.
@@ -49,7 +49,7 @@ export const openaiProvider: ImageProvider = {
           form.append("model", "gpt-image-1");
           form.append("prompt", `Apply this wrap design to the vehicle in the photo, preserving the exact vehicle, angle and lighting. ${prompt}`);
           form.append("image", parsed.blob, `vehicle.${parsed.ext}`);
-          form.append("size", "1024x1024");
+          form.append("size", "1536x1024");
           form.append("quality", "medium");
           const editRes = await fetchWithTimeout("https://api.openai.com/v1/images/edits", {
             method: "POST",
@@ -84,7 +84,7 @@ export const openaiProvider: ImageProvider = {
         Authorization: `Bearer ${config.openaiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ model: "gpt-image-1", prompt, size: "1024x1024", quality: "medium", n: 1 }),
+      body: JSON.stringify({ model: "gpt-image-1", prompt, size: "1536x1024", quality: "medium", n: 1 }),
     });
   },
 } as ImageProvider & { textToImage(p: string): Promise<Response> };
