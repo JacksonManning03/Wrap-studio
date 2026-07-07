@@ -8,7 +8,11 @@ import { uid, type FlatDesign, type Vehicle } from "@/lib/design/model";
 import { MATERIALS } from "@/lib/pricing/constants";
 import { nearestTier, priceFor } from "@/lib/pricing/pricing";
 
-export interface Render { url: string; provider: string; note?: string; loading?: boolean; }
+export interface Render {
+  url: string; provider: string; note?: string; loading?: boolean;
+  qa?: { passed: boolean; issues: string[] };
+  finalized?: boolean;
+}
 export type RenderMap = Record<string, Render>; // key: designId:vehicleId:scene
 
 /** Five deliberately different first-pass concepts, refined from there. */
@@ -52,21 +56,32 @@ export default function Studio() {
     }
   }, []);
 
-  // Step 2: paint the wrap design onto the template.
+  // Step 2: paint the wrap design onto the template. Concepts render at
+  // quality "low" (drafts); finalize re-renders at "high". A failed vision
+  // QA triggers ONE automatic retry, then the verdict is shown in the UI.
   const generate = useCallback(
-    async (design: FlatDesign, vehicle: Vehicle, scene?: string) => {
+    async (
+      design: FlatDesign, vehicle: Vehicle, scene?: string,
+      opts?: { quality?: "low" | "medium" | "high"; attempt?: number; finalized?: boolean },
+    ) => {
       const key = renderKey(design.id, vehicle.id, scene || "default");
+      const attempt = opts?.attempt ?? 0;
       setRenders((r) => ({ ...r, [key]: { url: "", provider: "", loading: true } }));
       try {
         const veh = await ensureTemplate(vehicle);
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ design, vehicle: veh, scene }),
+          body: JSON.stringify({ design, vehicle: veh, scene, quality: opts?.quality || "low" }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || "generate failed");
-        setRenders((r) => ({ ...r, [key]: { ...json, loading: false } }));
+        if (json.qa && !json.qa.passed && attempt === 0) {
+          // Auto-retry once; keep the failed draft on screen while it runs.
+          setRenders((r) => ({ ...r, [key]: { ...json, loading: true, finalized: opts?.finalized } }));
+          return generate(design, vehicle, scene, { ...opts, attempt: 1 });
+        }
+        setRenders((r) => ({ ...r, [key]: { ...json, loading: false, finalized: opts?.finalized } }));
       } catch {
         setRenders((r) => ({
           ...r,
@@ -79,6 +94,14 @@ export default function Studio() {
     },
     [ensureTemplate],
   );
+
+  /** Re-render the chosen concept at high quality for the client-facing proof. */
+  const finalize = useCallback(() => {
+    const design = designs.find((d) => d.id === activeDesignId);
+    const vehicle = vehicles.find((v) => v.id === activeVehicleId);
+    if (!design || !vehicle) return;
+    void generate(design, vehicle, undefined, { quality: "high", finalized: true });
+  }, [designs, vehicles, activeDesignId, activeVehicleId, generate]);
 
   const handleIntake = useCallback(
     (p: IntakePayload) => {
@@ -101,10 +124,35 @@ export default function Studio() {
       setDesigns(newDesigns);
       setActiveDesignId(newDesigns[0].id);
       setActiveVehicleId(p.vehicles[0].id);
-      // Build the template ONCE, then fan out all five concepts against it.
+      // Template and designer briefs build in parallel, then all five
+      // concepts fan out against the cached template with their briefs.
       void (async () => {
-        const veh = await ensureTemplate(p.vehicles[0]);
-        newDesigns.forEach((d) => void generate(d, veh));
+        const [veh, briefRes] = await Promise.all([
+          ensureTemplate(p.vehicles[0]),
+          fetch("/api/brief", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...p.branding,
+              logoDataUrl: p.branding.logoDataUrl,
+              vehicleLabel: p.vehicles[0].label,
+              coverage: p.coverage,
+              finish: p.finish,
+              customText: p.customText,
+              direction: p.direction,
+              siteText: p.siteText,
+              trade: p.trade,
+              styleHints: STYLE_DIRECTIONS,
+            }),
+          }).then((r) => r.json()).catch(() => ({ briefs: [] })),
+        ]);
+        const briefed = newDesigns.map((d, i) => ({
+          ...d,
+          brief: briefRes.briefs?.[i] || undefined,
+          logoDescription: briefRes.logoDescription || undefined,
+        }));
+        setDesigns(briefed);
+        briefed.forEach((d) => void generate(d, veh));
       })();
       setStep("results"); // contact gate disabled for personal use — no lead capture
     },
@@ -216,6 +264,7 @@ export default function Studio() {
           onAddVehicle={(v) => setVehicles((vs) => [...vs, v])}
           onRegenerate={regenerate}
           onRefine={refine}
+          onFinalize={finalize}
           onRerender={(scene) => {
             const d = designs.find((x) => x.id === activeDesignId);
             const v = vehicles.find((x) => x.id === activeVehicleId);

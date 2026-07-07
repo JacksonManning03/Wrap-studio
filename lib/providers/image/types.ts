@@ -5,6 +5,13 @@ export interface GenerateRequest {
   vehicle: Vehicle;
   /** Optional background/scene override ("night city street", "showroom"...). */
   scene?: string;
+  /** Render quality tier: concepts render "low", finalize renders "high". */
+  quality?: "low" | "medium" | "high";
+}
+
+export interface QAResult {
+  passed: boolean;
+  issues: string[];
 }
 
 export interface GenerateResult {
@@ -13,6 +20,8 @@ export interface GenerateResult {
   provider: "openai" | "placeholder";
   /** Human-readable note when a fallback was used. */
   note?: string;
+  /** Vision auto-check verdict (spelling, logo fidelity, badge ban). */
+  qa?: QAResult;
 }
 
 export interface ImageProvider {

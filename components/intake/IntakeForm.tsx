@@ -17,6 +17,9 @@ export interface IntakePayload {
   customText?: string;
   direction?: string;
   inspiration: string[];
+  /** Scraped website text + detected trade, fed to the brief-writer. */
+  siteText?: string;
+  trade?: string;
 }
 
 function fileToDataUrl(f: File): Promise<string> {
@@ -63,6 +66,8 @@ interface ScrapeResult {
   phone: string | null;
   colors: string[];
   logoDataUrl: string | null;
+  siteText?: string | null;
+  trade?: string | null;
 }
 
 export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) => void }) {
@@ -166,6 +171,8 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
       customText: customText.trim() || undefined,
       direction: direction || undefined,
       inspiration,
+      siteText: scrape?.siteText || undefined,
+      trade: scrape?.trade || undefined,
     });
   };
 

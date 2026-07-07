@@ -1,4 +1,4 @@
-import type { GenerateRequest, GenerateResult, ImageProvider } from "./types";
+import type { GenerateRequest, GenerateResult, ImageProvider, QAResult } from "./types";
 import { buildPrompt } from "./prompt";
 import { placeholderProvider } from "./placeholder";
 import { config } from "@/lib/config";
@@ -16,7 +16,7 @@ function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string } | null {
 
 // Abort a few seconds before Vercel's 60s function limit so a slow generation
 // degrades to the placeholder instead of a hard 504 timeout.
-async function fetchWithTimeout(url: string, init: RequestInit, ms = 55000): Promise<Response> {
+async function fetchWithTimeout(url: string, init: RequestInit, ms = 45000): Promise<Response> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
@@ -27,10 +27,57 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms = 55000): Pro
 }
 
 /**
- * OpenAI Images (gpt-image-1), 1536x1024 / medium to fit Vercel Hobby's 60s.
- * - Photo uploaded: try an image edit (keeps the exact vehicle). If OpenAI
- *   rejects the file, fall through to text-to-image rather than failing.
- * - No photo: text-to-image on a class-appropriate stock vehicle.
+ * Vision QA: a fast model inspects the render for the failures gpt-image-1
+ * actually makes — misspelled text, mangled logos, manufacturer badges.
+ * Never throws; a QA outage just returns undefined and the render ships.
+ */
+async function runQA(imageUrl: string, req: GenerateRequest, budgetMs: number): Promise<QAResult | undefined> {
+  if (budgetMs < 6000) return undefined; // not enough time left in the lambda
+  const b = req.design.branding;
+  const checks = [
+    b.businessName ? `the business name reads exactly "${b.businessName}"` : "",
+    b.phone ? `the phone number reads exactly "${b.phone}"` : "",
+    b.website ? `the website reads exactly "${b.website}"` : "",
+    b.logoDataUrl ? "the company logo looks clean and undistorted (not warped, smeared or redrawn)" : "",
+    "there are NO manufacturer badges/emblems (Ford, Chevy, GMC, Toyota, Tesla logos etc.) anywhere on the vehicle",
+    "there is no gibberish or misspelled lettering anywhere",
+  ].filter(Boolean);
+  try {
+    const res = await fetchWithTimeout("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.openaiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        temperature: 0,
+        messages: [{
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Inspect this AI-generated vehicle wrap mockup. Verify each item:\n${checks.map((c, i) => `${i + 1}. ${c}`).join("\n")}\nRespond as JSON: {"passed": boolean, "issues": string[]} — passed=true only if ALL items check out; issues lists each failure in plain words (max 8 words each).`,
+            },
+            { type: "image_url", image_url: { url: imageUrl, detail: "low" } },
+          ],
+        }],
+      }),
+    }, Math.min(budgetMs, 10000));
+    if (!res.ok) return undefined;
+    const json = await res.json();
+    const parsed = JSON.parse(json?.choices?.[0]?.message?.content || "{}");
+    if (typeof parsed.passed !== "boolean") return undefined;
+    return { passed: parsed.passed, issues: Array.isArray(parsed.issues) ? parsed.issues.map(String).slice(0, 6) : [] };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * OpenAI Images (gpt-image-1), 1536x1024. Quality is tiered by the request:
+ * concepts render "low" (fast, cheap drafts), finalize renders "high".
+ * - Photo/template available: image edit (keeps the exact vehicle), with the
+ *   real logo attached as a second reference image.
+ * - Otherwise: text-to-image on a class-appropriate stock vehicle.
  * Any failure falls back to the placeholder provider — the flow never dies.
  */
 export const openaiProvider: ImageProvider = {
@@ -38,6 +85,8 @@ export const openaiProvider: ImageProvider = {
   async generate(req: GenerateRequest): Promise<GenerateResult> {
     if (!config.openaiKey) return placeholderProvider.generate(req);
     const prompt = buildPrompt(req);
+    const quality = req.quality || "medium";
+    const started = Date.now();
     try {
       let res: Response | null = null;
 
@@ -57,7 +106,7 @@ export const openaiProvider: ImageProvider = {
           form.append("image[]", parsed.blob, `vehicle.${parsed.ext}`);
           if (logoOk) form.append("image[]", logoParsed.blob, `logo.${logoParsed.ext}`);
           form.append("size", "1536x1024");
-          form.append("quality", "medium");
+          form.append("quality", quality);
           const editRes = await fetchWithTimeout("https://api.openai.com/v1/images/edits", {
             method: "POST",
             headers: { Authorization: `Bearer ${config.openaiKey}` },
@@ -69,29 +118,33 @@ export const openaiProvider: ImageProvider = {
       }
 
       // No photo, or the edit was rejected: generate on a stock vehicle.
-      if (!res) res = await this.textToImage(prompt);
+      if (!res) res = await this.textToImage(prompt, quality);
 
       if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
       const json = await res.json();
       const b64 = json?.data?.[0]?.b64_json;
       const url = json?.data?.[0]?.url;
-      if (b64) return { url: `data:image/png;base64,${b64}`, provider: "openai" };
-      if (url) return { url, provider: "openai" };
-      throw new Error("OpenAI returned no image");
+      const finalUrl = b64 ? `data:image/png;base64,${b64}` : url;
+      if (!finalUrl) throw new Error("OpenAI returned no image");
+
+      // Vision auto-check, inside whatever time remains in this invocation.
+      const budget = 55000 - (Date.now() - started);
+      const qa = await runQA(finalUrl, req, budget);
+      return { url: finalUrl, provider: "openai", qa };
     } catch (err) {
       console.warn("[image] OpenAI failed, using placeholder:", err);
       const fb = await placeholderProvider.generate(req);
       return { ...fb, note: "Image service unavailable right now — showing a design preview instead." };
     }
   },
-  async textToImage(prompt: string): Promise<Response> {
+  async textToImage(prompt: string, quality = "medium"): Promise<Response> {
     return fetchWithTimeout("https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.openaiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ model: "gpt-image-1", prompt, size: "1536x1024", quality: "medium", n: 1 }),
+      body: JSON.stringify({ model: "gpt-image-1", prompt, size: "1536x1024", quality, n: 1 }),
     });
   },
-} as ImageProvider & { textToImage(p: string): Promise<Response> };
+} as ImageProvider & { textToImage(p: string, quality?: string): Promise<Response> };

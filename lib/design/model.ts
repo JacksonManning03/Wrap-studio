@@ -54,6 +54,10 @@ export interface FlatDesign {
   customText?: string;
   /** One of the distinct design directions used for the 5-variant first pass. */
   styleHint?: string;
+  /** Designer brief written by the brief-writer LLM; when present it drives the render. */
+  brief?: string;
+  /** Written description of the logo (from vision), reinforcing the reference image. */
+  logoDescription?: string;
   /** Free-text style/vibe from the user. */
   direction?: string;
   /** Inspiration images (data URLs) — hook for the generator. */

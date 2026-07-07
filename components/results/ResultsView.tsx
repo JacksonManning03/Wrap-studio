@@ -28,6 +28,7 @@ interface Props {
   onAddVehicle: (v: Vehicle) => void;
   onRegenerate: () => void;
   onRefine: (note: string) => void;
+  onFinalize: () => void;
   onRerender: (scene?: string) => void;
   onUpdateDesign: (id: string, patch: Partial<FlatDesign>) => void;
 }
@@ -113,6 +114,17 @@ export default function ResultsView(p: Props) {
               {render?.note && (
                 <span className="rounded-full bg-vinyl/10 px-2.5 py-1 text-[12px] font-medium text-vinyl">
                   {render.note}
+                </span>
+              )}
+              {render?.qa && !render.qa.passed && !render.loading && (
+                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[12px] font-medium text-amber-800"
+                  title={render.qa.issues.join(" · ")}>
+                  ⚠ Auto-check: {render.qa.issues[0] || "review this render"}{render.qa.issues.length > 1 ? ` +${render.qa.issues.length - 1} more` : ""}
+                </span>
+              )}
+              {render?.finalized && render.url && !render.loading && (
+                <span className="rounded-full bg-teal/10 px-2.5 py-1 text-[12px] font-medium text-teal">
+                  ✓ Final quality
                 </span>
               )}
               <label className="ml-auto text-[12px] font-semibold text-muted" htmlFor="scene">Setting</label>
@@ -241,6 +253,11 @@ export default function ResultsView(p: Props) {
               <p className="hint mt-1">
                 {fmtUSD(price)} all-in · {coverageLabel} · {design.material} · {design.finish}
               </p>
+              {!render?.finalized && (
+                <button className="btn-primary mt-3 w-full" onClick={p.onFinalize} disabled={!!render?.loading}>
+                  Finalize this design (high quality)
+                </button>
+              )}
               <button className="btn-accent mt-3 w-full" onClick={proceed} disabled={proceeding}>
                 {proceeding ? "Packaging your files…" : "I want this wrap"}
               </button>

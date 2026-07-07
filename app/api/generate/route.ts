@@ -7,13 +7,13 @@ export const maxDuration = 60; // image gen can be slow; see README re: worker q
 
 export async function POST(req: NextRequest) {
   try {
-    const { design, vehicle, scene } = (await req.json()) as {
-      design: FlatDesign; vehicle: Vehicle; scene?: string;
+    const { design, vehicle, scene, quality } = (await req.json()) as {
+      design: FlatDesign; vehicle: Vehicle; scene?: string; quality?: "low" | "medium" | "high";
     };
     if (!design || !vehicle) {
       return NextResponse.json({ error: "design and vehicle are required" }, { status: 400 });
     }
-    const result = await getImageProvider().generate({ design, vehicle, scene });
+    const result = await getImageProvider().generate({ design, vehicle, scene, quality });
     return NextResponse.json(result);
   } catch (e) {
     console.error("[api/generate]", e);

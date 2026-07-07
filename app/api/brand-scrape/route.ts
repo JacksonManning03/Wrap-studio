@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { config } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -86,6 +87,54 @@ function isGrayish(hex: string): boolean {
   return max - min < 24 || max > 245 || max < 25;
 }
 
+/** Visible page text, whitespace-collapsed, for the brief-writer and LLM extraction. */
+function extractSiteText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z#0-9]+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 6000);
+}
+
+/**
+ * LLM pass: page titles lie ("PPF | ..." is not the business name). A fast
+ * model reading the actual page text gets the name and trade right.
+ */
+async function llmExtract(title: string, siteText: string): Promise<{ businessName?: string; trade?: string } | null> {
+  if (!config.openaiKey || !siteText) return null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.openaiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        temperature: 0,
+        messages: [{
+          role: "user",
+          content: `From this business website, extract the company's actual name (as a customer would say it, not the page title) and its trade in 2-4 words (e.g. "pressure washing", "pest control", "luxury home builder").\nPage title: ${title}\nPage text: ${siteText.slice(0, 2500)}\nRespond as JSON: {"businessName": string, "trade": string}`,
+        }],
+      }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const parsed = JSON.parse(json?.choices?.[0]?.message?.content || "{}");
+    return {
+      businessName: typeof parsed.businessName === "string" ? parsed.businessName : undefined,
+      trade: typeof parsed.trade === "string" ? parsed.trade : undefined,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function extractLogoUrl(html: string, base: URL): string | undefined {
   const candidates = [
     html.match(/<img[^>]+(?:src|data-src)=["']([^"']*logo[^"']*)["']/i)?.[1],
@@ -110,11 +159,15 @@ export async function POST(req: NextRequest) {
     }
 
     const html = await fetchText(base.href);
-    if (!html) return NextResponse.json({ businessName: null, phone: null, colors: [], logoDataUrl: null, ok: false });
+    if (!html) return NextResponse.json({ businessName: null, phone: null, colors: [], logoDataUrl: null, siteText: null, trade: null, ok: false });
 
+    const title = html.match(/<title[^>]*>([^<]+)/i)?.[1]?.trim() || "";
+    const siteText = extractSiteText(html);
+    const extracted = await llmExtract(title, siteText);
     const businessName =
+      extracted?.businessName ||
       meta(html, "og:site_name") ||
-      html.match(/<title[^>]*>([^<|–-]+)/i)?.[1]?.trim() ||
+      title.split(/[|–-]/)[0]?.trim() ||
       undefined;
     const phone = extractPhone(html);
 
@@ -139,6 +192,8 @@ export async function POST(req: NextRequest) {
       phone: phone || null,
       colors,
       logoDataUrl,
+      siteText: siteText || null,
+      trade: extracted?.trade || null,
     });
   } catch (e) {
     console.error("[api/brand-scrape]", e);
