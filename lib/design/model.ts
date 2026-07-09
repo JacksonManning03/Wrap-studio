@@ -34,6 +34,10 @@ export interface Vehicle {
   make?: string;
   model?: string;
   trim?: string;
+  /** Cab/bed/roof/wheelbase details + accessories (camper shell, flatbed, ladder rack…). */
+  bodyConfig?: string;
+  /** Factory body color in plain words — unwrapped areas keep this color. */
+  baseColor?: string;
   /** Real photo(s) of the user's vehicle, data URLs. Required — drives the template. */
   photos: string[];
   /** AI-generated clean side-profile template of this vehicle (data URL). */

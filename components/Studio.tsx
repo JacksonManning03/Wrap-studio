@@ -41,10 +41,16 @@ export default function Studio() {
   const ensureTemplate = useCallback(async (vehicle: Vehicle): Promise<Vehicle> => {
     if (vehicle.templateUrl || !vehicle.photos[0]) return vehicle;
     try {
+      const spec = [vehicle.year, vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(" ");
       const res = await fetch("/api/template", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photo: vehicle.photos[0] }),
+        body: JSON.stringify({
+          photo: vehicle.photos[0],
+          spec: spec || undefined,
+          bodyConfig: vehicle.bodyConfig,
+          color: vehicle.baseColor,
+        }),
       });
       const json = await res.json();
       if (!res.ok || !json.url) return vehicle;

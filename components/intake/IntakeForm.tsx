@@ -58,8 +58,15 @@ function rasterizeLogoToPng(dataUrl: string, max = 1024): Promise<string> {
 
 interface DraftVehicle {
   id: string; vehicleClass: VehicleClass; photos: string[];
+  year: string; make: string; model: string; trim: string;
+  bodyConfig: string; baseColor: string;
+  identifying: boolean; identified: boolean;
 }
-const newDraft = (): DraftVehicle => ({ id: uid("veh"), vehicleClass: "sedan", photos: [] });
+const newDraft = (): DraftVehicle => ({
+  id: uid("veh"), vehicleClass: "sedan", photos: [],
+  year: "", make: "", model: "", trim: "", bodyConfig: "", baseColor: "",
+  identifying: false, identified: false,
+});
 
 interface ScrapeResult {
   businessName: string | null;
@@ -106,6 +113,28 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
 
   const setVeh = (id: string, patch: Partial<DraftVehicle>) =>
     setVehicles((vs) => vs.map((v) => (v.id === id ? { ...v, ...patch } : v)));
+
+  /** The photo's job: identify the exact vehicle. The user confirms/edits the result. */
+  const identifyVehicle = async (id: string, photo: string) => {
+    setVeh(id, { identifying: true });
+    try {
+      const res = await fetch("/api/vehicle-id", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photo }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setVeh(id, {
+          identifying: false, identified: true,
+          year: json.year || "", make: json.make || "", model: json.model || "",
+          trim: json.trim || "", bodyConfig: json.bodyConfig || "", baseColor: json.color || "",
+        });
+        return;
+      }
+    } catch { /* fall through */ }
+    setVeh(id, { identifying: false, identified: true });
+  };
 
   const normPhone = (s: string) => s.replace(/\D/g, "").replace(/^1/, "");
   const scrapeConflicts = useMemo(() => {
@@ -156,7 +185,11 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
     if (photosMissing) return;
     const finalVehicles: Vehicle[] = vehicles.map((v) => ({
       id: v.id, vehicleClass: v.vehicleClass, photos: v.photos,
-      label: VEHICLE_CLASS_LABELS[v.vehicleClass],
+      year: v.year || undefined, make: v.make || undefined,
+      model: v.model || undefined, trim: v.trim || undefined,
+      bodyConfig: v.bodyConfig || undefined, baseColor: v.baseColor || undefined,
+      label: [v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") ||
+        VEHICLE_CLASS_LABELS[v.vehicleClass],
     }));
     onSubmit({
       vehicles: finalVehicles, finish, coverage,
@@ -183,8 +216,9 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
         <section className="card p-5 sm:p-6">
           <h2 className="text-lg font-bold">Your vehicle</h2>
           <p className="hint mb-4">
-            Upload a photo of your vehicle — we turn it into a clean side-profile
-            template, then design your wrap on it.
+            Upload a photo of your vehicle — we identify the exact year, make,
+            model and setup (you confirm it), then build a clean side-profile
+            of your vehicle and design the wrap on it.
           </p>
           {vehicles.map((v, i) => (
             <div key={v.id} className={i > 0 ? "mt-5 border-t border-line pt-5" : ""}>
@@ -211,10 +245,37 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
                   onChange={async (e) => {
                     const fs = Array.from(e.target.files || []);
                     const urls = await Promise.all(fs.map(fileToDataUrl));
+                    const first = v.photos.length === 0 && urls[0];
                     setVeh(v.id, { photos: [...v.photos, ...urls] });
+                    if (first) void identifyVehicle(v.id, urls[0]);
                   }} />
                 {v.photos.length === 0 && (
-                  <p className="hint text-red-600">A photo is required — it&apos;s what we build your mockup from.</p>
+                  <p className="hint text-red-600">A photo is required — we use it to identify your exact vehicle.</p>
+                )}
+                {v.identifying && (
+                  <p className="hint mt-2">🔎 Identifying your vehicle…</p>
+                )}
+                {v.identified && !v.identifying && (
+                  <div className="mt-3 rounded-lg border border-line bg-white p-3">
+                    <p className="text-[13px] font-semibold">
+                      {v.make ? `Looks like a ${[v.year, v.make, v.model, v.trim].filter(Boolean).join(" ")}` : "We couldn't auto-identify it"} — confirm the details:
+                    </p>
+                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {([["year", "Year"], ["make", "Make"], ["model", "Model"], ["trim", "Trim"]] as const).map(([k, label]) => (
+                        <div key={k}>
+                          <label className="label" htmlFor={`${k}-${v.id}`}>{label}</label>
+                          <input id={`${k}-${v.id}`} className="field !py-1.5 text-[13px]" value={v[k]}
+                            onChange={(e) => setVeh(v.id, { [k]: e.target.value } as Partial<DraftVehicle>)} />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2">
+                      <label className="label" htmlFor={`cfg-${v.id}`}>Body / accessories (camper shell, flatbed, ladder rack…)</label>
+                      <input id={`cfg-${v.id}`} className="field !py-1.5 text-[13px]" value={v.bodyConfig}
+                        placeholder="e.g. crew cab short bed, camper shell"
+                        onChange={(e) => setVeh(v.id, { bodyConfig: e.target.value })} />
+                    </div>
+                  </div>
                 )}
                 {v.photos.length > 0 && (
                   <div className="mt-2 flex gap-2">

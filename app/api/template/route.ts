@@ -5,18 +5,24 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /**
- * Step 1 of the two-step render: turn the client's real vehicle photo into a
- * clean, badge-free, broadside side-profile "template" shot on white. Step 2
- * (/api/generate) then paints the wrap design onto this template.
+ * Step 1 of the two-step render: a clean, badge-free, broadside side-profile
+ * "template" shot of the customer's EXACT vehicle on white. The confirmed
+ * spec (year/make/model/trim/bodyConfig) does the heavy lifting — naming the
+ * vehicle precisely is what pins the model to the right body; the photo rides
+ * along as visual reference for stance and accessories.
  */
-const TEMPLATE_PROMPT = [
-  "Recreate the exact vehicle in this photo as a professional studio product photograph:",
-  "exact broadside side profile, the full side of the vehicle facing the camera, centered in frame.",
-  "Isolated on a clean white studio background with a soft contact shadow, professional product-shot lighting.",
-  "The body is in its plain original paint, unwrapped, with clean panels — a blank canvas for a vinyl wrap mockup.",
-  "Plain blank grille — absolutely NO manufacturer badges, emblems, or logos anywhere on the vehicle body.",
-  "No text, no watermarks, photoreal, high detail.",
-].join(" ");
+function templatePrompt(spec?: string, bodyConfig?: string, color?: string): string {
+  return [
+    spec
+      ? `Photorealistic studio product photograph of a ${spec}${bodyConfig ? ` (${bodyConfig})` : ""} — render this EXACT year, make, model and body configuration with accurate proportions, body lines, grille shape, lights and wheels. The supplied photo shows the actual vehicle; match it.`
+      : "Recreate the exact vehicle in this photo as a photorealistic studio product photograph.",
+    "Exact broadside side profile, the full side of the vehicle facing the camera, centered in frame.",
+    "Isolated on a clean white studio background with a soft contact shadow, professional product-shot lighting.",
+    `The body is plain unwrapped ${color || "factory"} paint with clean panels — a blank canvas for a vinyl wrap mockup.`,
+    "Plain blank grille — absolutely NO manufacturer badges, emblems, or logos anywhere on the vehicle body.",
+    "No text, no watermarks, photoreal, high detail.",
+  ].join(" ");
+}
 
 function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string } | null {
   const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
@@ -29,7 +35,9 @@ function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string } | null {
 
 export async function POST(req: NextRequest) {
   try {
-    const { photo } = (await req.json()) as { photo?: string };
+    const { photo, spec, bodyConfig, color } = (await req.json()) as {
+      photo?: string; spec?: string; bodyConfig?: string; color?: string;
+    };
     if (!photo) return NextResponse.json({ error: "photo is required" }, { status: 400 });
     if (!config.openaiKey) return NextResponse.json({ error: "image service not configured" }, { status: 503 });
 
@@ -38,7 +46,7 @@ export async function POST(req: NextRequest) {
 
     const form = new FormData();
     form.append("model", "gpt-image-1");
-    form.append("prompt", TEMPLATE_PROMPT);
+    form.append("prompt", templatePrompt(spec, bodyConfig, color));
     form.append("image", parsed.blob, `vehicle.${parsed.ext}`);
     form.append("size", "1536x1024");
     form.append("quality", "medium");

@@ -25,7 +25,7 @@ export function buildPrompt(req: GenerateRequest): string {
     scene
       ? `Setting: ${scene}.`
       : "Isolated on a clean white studio background with a soft contact shadow.",
-    "Overall style: crisp corporate print proof, flat vector vehicle illustration, precise alignment, professional sign-shop presentation.",
+    "Overall style: photorealistic vehicle render on white, like a professional sign-shop proof — the vehicle looks real, while the wrap graphics on it are crisp clean vector art, precisely aligned.",
     "Spelling discipline: every word of on-vehicle text must be spelled EXACTLY as quoted. No other text anywhere, no gibberish lettering, no watermarks.",
   ];
 
