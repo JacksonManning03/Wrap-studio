@@ -135,6 +135,28 @@ async function llmExtract(title: string, siteText: string): Promise<{ businessNa
   }
 }
 
+const GENERIC_FONTS = new Set([
+  "sans-serif", "serif", "monospace", "cursive", "fantasy", "system-ui", "inherit", "initial", "unset",
+  "arial", "helvetica", "helvetica neue", "times new roman", "times", "georgia", "verdana", "tahoma",
+  "segoe ui", "roboto", "-apple-system", "blinkmacsystemfont", "font awesome 5 free", "font awesome 6 free",
+  "fontawesome", "icomoon", "material icons", "var(--font-family)",
+]);
+
+/** Brand fonts from the site CSS: named families, generics and icon fonts filtered out. */
+function extractFonts(css: string): string[] {
+  const counts = new Map<string, number>();
+  const re = /font-family\s*:\s*([^;}]+)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(css)) !== null) {
+    const first = m[1].split(",")[0].replace(/["']/g, "").trim();
+    if (!first || first.startsWith("var(")) continue;
+    const key = first.toLowerCase();
+    if (GENERIC_FONTS.has(key) || key.includes("icon") || key.includes("awesome")) continue;
+    counts.set(first, (counts.get(first) || 0) + 1);
+  }
+  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([f]) => f);
+}
+
 function extractLogoUrl(html: string, base: URL): string | undefined {
   const candidates = [
     html.match(/<img[^>]+(?:src|data-src)=["']([^"']*logo[^"']*)["']/i)?.[1],
@@ -183,6 +205,7 @@ export async function POST(req: NextRequest) {
       cssText += (await fetchText(cssUrl)) || "";
     }
     const colors = extractColors(html + cssText);
+    const fonts = extractFonts(html + cssText);
     const logoUrl = extractLogoUrl(html, base);
     const logoDataUrl = logoUrl ? await fetchImageAsDataUrl(logoUrl) : null;
 
@@ -191,6 +214,7 @@ export async function POST(req: NextRequest) {
       businessName: businessName || null,
       phone: phone || null,
       colors,
+      fonts,
       logoDataUrl,
       siteText: siteText || null,
       trade: extracted?.trade || null,

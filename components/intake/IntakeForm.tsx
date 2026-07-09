@@ -72,6 +72,7 @@ interface ScrapeResult {
   businessName: string | null;
   phone: string | null;
   colors: string[];
+  fonts?: string[];
   logoDataUrl: string | null;
   siteText?: string | null;
   trade?: string | null;
@@ -164,6 +165,7 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (p: IntakePayload) 
       if (json.businessName && !businessName) setBusinessName(json.businessName);
       if (json.phone && !phone) setPhone(json.phone);
       if (json.colors.length && colors.length === 0) setColors(json.colors);
+      if (json.fonts?.length && !fonts) setFonts(json.fonts.join(", "));
       if (json.logoDataUrl && !logo) setLogo({ dataUrl: await rasterizeLogoToPng(json.logoDataUrl), name: "From your website" });
     } catch {
       setScrape(null);
