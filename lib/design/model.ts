@@ -27,6 +27,13 @@ export interface LegalText {
   license?: string;
 }
 
+/**
+ * Camera angles for renders, matching the reference proof
+ * (docs/reference-outputs/): front 3/4 from the driver's side, and the
+ * opposite corner — rear 3/4 from the passenger's side.
+ */
+export type RenderAngle = "front34" | "rear34";
+
 export interface Vehicle {
   id: string;
   vehicleClass: VehicleClass;
@@ -40,8 +47,8 @@ export interface Vehicle {
   baseColor?: string;
   /** Real photo(s) of the user's vehicle, data URLs. Required — drives the template. */
   photos: string[];
-  /** AI-generated clean side-profile template of this vehicle (data URL). */
-  templateUrl?: string;
+  /** AI-generated clean templates of this vehicle, one per camera angle (data URLs). */
+  templateUrls?: Partial<Record<RenderAngle, string>>;
   label: string;
 }
 

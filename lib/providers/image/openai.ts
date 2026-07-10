@@ -34,9 +34,12 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms = 45000): Pro
 async function runQA(imageUrl: string, req: GenerateRequest, budgetMs: number): Promise<QAResult | undefined> {
   if (budgetMs < 6000) return undefined; // not enough time left in the lambda
   const b = req.design.branding;
+  // The front fender (where the phone lives) is barely visible from the rear
+  // 3/4 corner — checking its exact text there just produces false failures.
+  const phoneVisible = (req.angle || "front34") === "front34";
   const checks = [
     b.businessName ? `the business name reads exactly "${b.businessName}"` : "",
-    b.phone ? `the phone number reads exactly "${b.phone}"` : "",
+    b.phone && phoneVisible ? `the phone number reads exactly "${b.phone}"` : "",
     b.website ? `the website reads exactly "${b.website}"` : "",
     b.logoDataUrl ? "the company logo looks clean and undistorted (not warped, smeared or redrawn)" : "",
     "there are NO manufacturer badges/emblems (Ford, Chevy, GMC, Toyota, Tesla logos etc.) anywhere on the vehicle",
@@ -90,8 +93,10 @@ export const openaiProvider: ImageProvider = {
     try {
       let res: Response | null = null;
 
-      // Prefer the AI-generated side-profile template; fall back to the raw photo.
-      const baseImage = req.vehicle.templateUrl || req.vehicle.photos[0];
+      // Prefer the AI-generated template for THIS angle; fall back to the raw
+      // photo (the edit preserves the base image's camera angle, so a template
+      // from the wrong corner would fight the requested framing).
+      const baseImage = req.vehicle.templateUrls?.[req.angle || "front34"] || req.vehicle.photos[0];
       if (baseImage) {
         const parsed = dataUrlToBlob(baseImage);
         if (parsed) {

@@ -18,9 +18,10 @@ hit this level. What makes it pass:
   scene. Nothing about the truck itself looks AI-generated.
 - Scene sells the trade in its real market: residential driveway, desert
   landscaping, palm trees — the customer this business actually serves.
-  (Note: the current prompt defaults to a white studio broadside and takes
-  `scene` as an optional override; this reference is a 3/4 front view in a
-  scene. The bar is the *polish*, in both framings.)
+  (The pipeline now renders this framing by default: front 3/4 from the
+  driver's side, plus the opposite corner — rear 3/4 from the passenger's
+  side — on finalize or via the angle toggle. Background defaults to white
+  studio; `scene` overrides it.)
 
 **Wrap design quality**
 - Solid brand-orange base with a **tone-on-tone motif tied to the trade**:

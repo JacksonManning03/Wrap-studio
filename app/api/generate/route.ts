@@ -1,19 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getImageProvider } from "@/lib/providers/image";
-import type { FlatDesign, Vehicle } from "@/lib/design/model";
+import type { FlatDesign, RenderAngle, Vehicle } from "@/lib/design/model";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // image gen can be slow; see README re: worker queue
 
 export async function POST(req: NextRequest) {
   try {
-    const { design, vehicle, scene, quality } = (await req.json()) as {
-      design: FlatDesign; vehicle: Vehicle; scene?: string; quality?: "low" | "medium" | "high";
+    const { design, vehicle, scene, quality, angle } = (await req.json()) as {
+      design: FlatDesign; vehicle: Vehicle; scene?: string;
+      quality?: "low" | "medium" | "high"; angle?: RenderAngle;
     };
     if (!design || !vehicle) {
       return NextResponse.json({ error: "design and vehicle are required" }, { status: 400 });
     }
-    const result = await getImageProvider().generate({ design, vehicle, scene, quality });
+    const result = await getImageProvider().generate({ design, vehicle, scene, quality, angle });
     return NextResponse.json(result);
   } catch (e) {
     console.error("[api/generate]", e);

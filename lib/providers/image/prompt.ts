@@ -1,6 +1,15 @@
 import type { GenerateRequest } from "./types";
+import type { RenderAngle } from "@/lib/design/model";
 import { VEHICLE_CLASS_LABELS } from "@/lib/pricing/constants";
 import { nearestTier } from "@/lib/pricing/pricing";
+
+/** Camera framings, calibrated to the reference proof (front 3/4, driver side). */
+const ANGLE_LINES: Record<RenderAngle, string> = {
+  front34:
+    "shown from a front three-quarter view on the driver's side — the front end and the full driver side of the vehicle both clearly visible, vehicle filling the frame, centered",
+  rear34:
+    "shown from a rear three-quarter view on the passenger's side — the rear end and the full passenger side of the vehicle both clearly visible, vehicle filling the frame, centered",
+};
 
 /**
  * Build the render brief in the language that produced the Paradise Washing
@@ -16,10 +25,14 @@ export function buildPrompt(req: GenerateRequest): string {
   const tier = nearestTier(d.coverage).label.toLowerCase();
   const b = d.branding;
 
+  const angle = req.angle || "front34";
   const hardOpen = [
-    `Professional vehicle wrap design proof: a ${veh} with a ${tier} printed vinyl wrap (${d.finish.toLowerCase()} laminate), shown in exact broadside side profile, the full side of the vehicle facing the camera, centered.`,
-    "Generic blank grille — absolutely NO manufacturer badges, emblems, or logos anywhere on the vehicle.",
-  ];
+    `Professional vehicle wrap design proof: a ${veh} with a ${tier} printed vinyl wrap (${d.finish.toLowerCase()} laminate), ${ANGLE_LINES[angle]}.`,
+    angle === "rear34"
+      ? "The same wrap design runs on both sides of the vehicle — mirror the layout onto the passenger side, and carry the design onto the rear/tailgate with the logo or business name centered there."
+      : "",
+    "Generic blank grille and tailgate — absolutely NO manufacturer badges, emblems, or logos anywhere on the vehicle.",
+  ].filter(Boolean);
 
   const hardClose = [
     scene

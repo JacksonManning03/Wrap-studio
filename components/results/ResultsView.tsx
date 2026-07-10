@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import type { RenderMap } from "@/components/Studio";
 import BudgetCoverageSlider from "@/components/pricing-slider/BudgetCoverageSlider";
 import { composeMockupSVG, svgToDataUrl } from "@/lib/design/composer";
-import { uid, type FlatDesign, type Vehicle } from "@/lib/design/model";
+import { uid, type FlatDesign, type RenderAngle, type Vehicle } from "@/lib/design/model";
 import { VEHICLE_CLASSES, VEHICLE_CLASS_LABELS, type VehicleClass } from "@/lib/pricing/constants";
 import { fmtUSD, nearestTier, priceFor } from "@/lib/pricing/pricing";
 
@@ -29,13 +29,14 @@ interface Props {
   onRegenerate: () => void;
   onRefine: (note: string) => void;
   onFinalize: () => void;
-  onRerender: (scene?: string) => void;
+  onRerender: (scene?: string, angle?: RenderAngle) => void;
   onUpdateDesign: (id: string, patch: Partial<FlatDesign>) => void;
 }
 
 export default function ResultsView(p: Props) {
   const [tab, setTab] = useState<"photo" | "3d">("photo");
   const [scene, setScene] = useState<string>("Studio");
+  const [angle, setAngle] = useState<RenderAngle>("front34");
   const [proceeding, setProceeding] = useState(false);
   const [done, setDone] = useState<null | { location: string; path: string; vectorDataUrl: string; jobId: string }>(null);
   const [proceedErr, setProceedErr] = useState("");
@@ -44,9 +45,17 @@ export default function ResultsView(p: Props) {
 
   const design = p.designs.find((d) => d.id === p.activeDesignId) || p.designs[0];
   const vehicle = p.vehicles.find((v) => v.id === p.activeVehicleId) || p.vehicles[0];
-  const key = `${design.id}:${vehicle.id}:${scene === "Studio" ? "default" : scene}`;
-  const defaultKey = `${design.id}:${vehicle.id}:default`;
+  const sceneArg = scene === "Studio" ? undefined : scene;
+  const key = `${design.id}:${vehicle.id}:${sceneArg || "default"}:${angle}`;
+  const defaultKey = `${design.id}:${vehicle.id}:default:${angle}`;
   const render = p.renders[key] || p.renders[defaultKey];
+
+  /** Switch corners; if that corner was never rendered here, kick it off. */
+  const pickAngle = (a: RenderAngle) => {
+    setAngle(a);
+    const k = `${design.id}:${vehicle.id}:${sceneArg || "default"}:${a}`;
+    if (!p.renders[k]) p.onRerender(sceneArg, a);
+  };
   const price = priceFor(vehicle.vehicleClass, design.coverage, design.jobType);
   const coverageLabel = nearestTier(design.coverage).label;
 
@@ -107,10 +116,20 @@ export default function ResultsView(p: Props) {
             ) : (
               <div className="flex h-[380px] flex-col items-center justify-center gap-3 p-6 text-center">
                 <p className="text-[15px] font-semibold">That render didn&apos;t come back.</p>
-                <button className="btn-primary" onClick={() => p.onRerender()}>Try again</button>
+                <button className="btn-primary" onClick={() => p.onRerender(sceneArg, angle)}>Try again</button>
               </div>
             )}
             <div className="flex flex-wrap items-center gap-2 border-t border-line p-3">
+              <div className="flex gap-1">
+                <button className={`chip !py-1.5 text-[13px] ${angle === "front34" ? "chip-on" : ""}`}
+                  onClick={() => pickAngle("front34")}>
+                  Front ¾
+                </button>
+                <button className={`chip !py-1.5 text-[13px] ${angle === "rear34" ? "chip-on" : ""}`}
+                  onClick={() => pickAngle("rear34")}>
+                  Rear ¾
+                </button>
+              </div>
               {render?.note && (
                 <span className="rounded-full bg-vinyl/10 px-2.5 py-1 text-[12px] font-medium text-vinyl">
                   {render.note}
@@ -133,7 +152,7 @@ export default function ResultsView(p: Props) {
                 {SCENES.map((s) => <option key={s}>{s}</option>)}
               </select>
               <button className="btn-ghost !px-3 !py-1.5 text-[13px]"
-                onClick={() => p.onRerender(scene === "Studio" ? undefined : scene)}>
+                onClick={() => p.onRerender(sceneArg, angle)}>
                 Re-render here
               </button>
             </div>
@@ -176,7 +195,7 @@ export default function ResultsView(p: Props) {
             <p className="label">Your design concepts — pick one to view or refine</p>
             <div className="flex gap-3 overflow-x-auto pb-1">
               {p.designs.map((d) => {
-                const r = p.renders[`${d.id}:${vehicle.id}:default`];
+                const r = p.renders[`${d.id}:${vehicle.id}:default:front34`];
                 const thumb = r?.url || svgToDataUrl(composeMockupSVG(d, vehicle.vehicleClass));
                 return (
                   <button key={d.id} onClick={() => p.onSelectDesign(d.id)}

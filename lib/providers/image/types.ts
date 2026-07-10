@@ -1,4 +1,4 @@
-import type { FlatDesign, Vehicle } from "@/lib/design/model";
+import type { FlatDesign, RenderAngle, Vehicle } from "@/lib/design/model";
 
 export interface GenerateRequest {
   design: FlatDesign;
@@ -7,6 +7,8 @@ export interface GenerateRequest {
   scene?: string;
   /** Render quality tier: concepts render "low", finalize renders "high". */
   quality?: "low" | "medium" | "high";
+  /** Camera angle; defaults to front 3/4 driver's side (the reference framing). */
+  angle?: RenderAngle;
 }
 
 export interface QAResult {

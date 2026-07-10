@@ -4,19 +4,29 @@ import { config } from "@/lib/config";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+import type { RenderAngle } from "@/lib/design/model";
+
+/** Same camera language as the render prompt, so template and wrap agree. */
+const ANGLE_LINES: Record<RenderAngle, string> = {
+  front34:
+    "Front three-quarter view on the driver's side — the front end and the full driver side of the vehicle both clearly visible, vehicle filling the frame, centered.",
+  rear34:
+    "Rear three-quarter view on the passenger's side — the rear end and the full passenger side of the vehicle both clearly visible, vehicle filling the frame, centered.",
+};
+
 /**
- * Step 1 of the two-step render: a clean, badge-free, broadside side-profile
- * "template" shot of the customer's EXACT vehicle on white. The confirmed
- * spec (year/make/model/trim/bodyConfig) does the heavy lifting — naming the
- * vehicle precisely is what pins the model to the right body; the photo rides
- * along as visual reference for stance and accessories.
+ * Step 1 of the two-step render: a clean, badge-free "template" shot of the
+ * customer's EXACT vehicle on white, at the requested camera angle. The
+ * confirmed spec (year/make/model/trim/bodyConfig) does the heavy lifting —
+ * naming the vehicle precisely is what pins the model to the right body; the
+ * photo rides along as visual reference for stance and accessories.
  */
-function templatePrompt(spec?: string, bodyConfig?: string, color?: string): string {
+function templatePrompt(spec?: string, bodyConfig?: string, color?: string, angle: RenderAngle = "front34"): string {
   return [
     spec
       ? `Photorealistic studio product photograph of a ${spec}${bodyConfig ? ` (${bodyConfig})` : ""} — render this EXACT year, make, model and body configuration with accurate proportions, body lines, grille shape, lights and wheels. The supplied photo shows the actual vehicle; match it.`
       : "Recreate the exact vehicle in this photo as a photorealistic studio product photograph.",
-    "Exact broadside side profile, the full side of the vehicle facing the camera, centered in frame.",
+    ANGLE_LINES[angle],
     "Isolated on a clean white studio background with a soft contact shadow, professional product-shot lighting.",
     `The body is plain unwrapped ${color || "factory"} paint with clean panels — a blank canvas for a vinyl wrap mockup.`,
     "Plain blank grille — absolutely NO manufacturer badges, emblems, or logos anywhere on the vehicle body.",
@@ -35,8 +45,8 @@ function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string } | null {
 
 export async function POST(req: NextRequest) {
   try {
-    const { photo, spec, bodyConfig, color } = (await req.json()) as {
-      photo?: string; spec?: string; bodyConfig?: string; color?: string;
+    const { photo, spec, bodyConfig, color, angle } = (await req.json()) as {
+      photo?: string; spec?: string; bodyConfig?: string; color?: string; angle?: RenderAngle;
     };
     if (!photo) return NextResponse.json({ error: "photo is required" }, { status: 400 });
     if (!config.openaiKey) return NextResponse.json({ error: "image service not configured" }, { status: 503 });
@@ -46,7 +56,7 @@ export async function POST(req: NextRequest) {
 
     const form = new FormData();
     form.append("model", "gpt-image-1");
-    form.append("prompt", templatePrompt(spec, bodyConfig, color));
+    form.append("prompt", templatePrompt(spec, bodyConfig, color, angle || "front34"));
     form.append("image", parsed.blob, `vehicle.${parsed.ext}`);
     form.append("size", "1536x1024");
     form.append("quality", "medium");

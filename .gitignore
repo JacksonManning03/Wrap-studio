@@ -5,3 +5,4 @@ data/leads.local.json
 output/jobs/*
 !output/jobs/.gitkeep
 *.tsbuildinfo
+next-env.d.ts

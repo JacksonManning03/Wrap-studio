@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import IntakeForm, { type IntakePayload } from "@/components/intake/IntakeForm";
 import ContactGate from "@/components/results/ContactGate";
 import ResultsView from "@/components/results/ResultsView";
-import { uid, type FlatDesign, type Vehicle } from "@/lib/design/model";
+import { uid, type FlatDesign, type RenderAngle, type Vehicle } from "@/lib/design/model";
 import { MATERIALS } from "@/lib/pricing/constants";
 import { nearestTier, priceFor } from "@/lib/pricing/pricing";
 
@@ -13,7 +13,7 @@ export interface Render {
   qa?: { passed: boolean; issues: string[] };
   finalized?: boolean;
 }
-export type RenderMap = Record<string, Render>; // key: designId:vehicleId:scene
+export type RenderMap = Record<string, Render>; // key: designId:vehicleId:scene:angle
 
 /** Five deliberately different first-pass concepts, refined from there. */
 const STYLE_DIRECTIONS = [
@@ -34,12 +34,13 @@ export default function Studio() {
   const [contact, setContact] = useState<{ name: string; email: string; phone: string } | null>(null);
   const gateDone = useRef(false);
 
-  const renderKey = (d: string, v: string, scene = "default") => `${d}:${v}:${scene}`;
+  const renderKey = (d: string, v: string, scene = "default", angle: RenderAngle = "front34") =>
+    `${d}:${v}:${scene}:${angle}`;
 
-  // Step 1: build a clean side-profile template from the client's photo.
-  // Cached per vehicle; failures fall back to rendering on the raw photo.
-  const ensureTemplate = useCallback(async (vehicle: Vehicle): Promise<Vehicle> => {
-    if (vehicle.templateUrl || !vehicle.photos[0]) return vehicle;
+  // Step 1: build a clean template from the client's photo, at the requested
+  // camera angle. Cached per vehicle×angle; failures fall back to the raw photo.
+  const ensureTemplate = useCallback(async (vehicle: Vehicle, angle: RenderAngle = "front34"): Promise<Vehicle> => {
+    if (vehicle.templateUrls?.[angle] || !vehicle.photos[0]) return vehicle;
     try {
       const spec = [vehicle.year, vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(" ");
       const res = await fetch("/api/template", {
@@ -50,12 +51,19 @@ export default function Studio() {
           spec: spec || undefined,
           bodyConfig: vehicle.bodyConfig,
           color: vehicle.baseColor,
+          angle,
         }),
       });
       const json = await res.json();
       if (!res.ok || !json.url) return vehicle;
-      const withTemplate = { ...vehicle, templateUrl: json.url as string };
-      setVehicles((vs) => vs.map((v) => (v.id === vehicle.id ? withTemplate : v)));
+      const withTemplate: Vehicle = {
+        ...vehicle,
+        templateUrls: { ...vehicle.templateUrls, [angle]: json.url as string },
+      };
+      // Merge functionally — both angles can resolve in parallel.
+      setVehicles((vs) => vs.map((v) =>
+        v.id === vehicle.id ? { ...v, templateUrls: { ...v.templateUrls, [angle]: json.url as string } } : v,
+      ));
       return withTemplate;
     } catch {
       return vehicle;
@@ -68,17 +76,18 @@ export default function Studio() {
   const generate = useCallback(
     async (
       design: FlatDesign, vehicle: Vehicle, scene?: string,
-      opts?: { quality?: "low" | "medium" | "high"; attempt?: number; finalized?: boolean },
+      opts?: { quality?: "low" | "medium" | "high"; attempt?: number; finalized?: boolean; angle?: RenderAngle },
     ) => {
-      const key = renderKey(design.id, vehicle.id, scene || "default");
+      const angle = opts?.angle || "front34";
+      const key = renderKey(design.id, vehicle.id, scene || "default", angle);
       const attempt = opts?.attempt ?? 0;
       setRenders((r) => ({ ...r, [key]: { url: "", provider: "", loading: true } }));
       try {
-        const veh = await ensureTemplate(vehicle);
+        const veh = await ensureTemplate(vehicle, angle);
         const res = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ design, vehicle: veh, scene, quality: opts?.quality || "low" }),
+          body: JSON.stringify({ design, vehicle: veh, scene, quality: opts?.quality || "low", angle }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || "generate failed");
@@ -101,12 +110,13 @@ export default function Studio() {
     [ensureTemplate],
   );
 
-  /** Re-render the chosen concept at high quality for the client-facing proof. */
+  /** Re-render the chosen concept at high quality for the client-facing proof — both corners. */
   const finalize = useCallback(() => {
     const design = designs.find((d) => d.id === activeDesignId);
     const vehicle = vehicles.find((v) => v.id === activeVehicleId);
     if (!design || !vehicle) return;
-    void generate(design, vehicle, undefined, { quality: "high", finalized: true });
+    void generate(design, vehicle, undefined, { quality: "high", finalized: true, angle: "front34" });
+    void generate(design, vehicle, undefined, { quality: "high", finalized: true, angle: "rear34" });
   }, [designs, vehicles, activeDesignId, activeVehicleId, generate]);
 
   const handleIntake = useCallback(
@@ -265,16 +275,16 @@ export default function Studio() {
             setActiveVehicleId(vid);
             const d = designs.find((x) => x.id === activeDesignId);
             const v = vehicles.find((x) => x.id === vid);
-            if (d && v && !renders[`${d.id}:${v.id}:default`]) void generate(d, v);
+            if (d && v && !renders[renderKey(d.id, v.id)]) void generate(d, v);
           }}
           onAddVehicle={(v) => setVehicles((vs) => [...vs, v])}
           onRegenerate={regenerate}
           onRefine={refine}
           onFinalize={finalize}
-          onRerender={(scene) => {
+          onRerender={(scene, angle) => {
             const d = designs.find((x) => x.id === activeDesignId);
             const v = vehicles.find((x) => x.id === activeVehicleId);
-            if (d && v) void generate(d, v, scene);
+            if (d && v) void generate(d, v, scene, { angle });
           }}
           onUpdateDesign={updateDesign}
         />
